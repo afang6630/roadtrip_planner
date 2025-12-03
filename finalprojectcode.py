@@ -7,6 +7,10 @@ import streamlit as st
 import pandas as pd
 import pydeck as pdk
 
+# --- NEW: OpenAI import & client ---
+from openai import OpenAI
+client = OpenAI()
+
 
 # ---------- Data Models ----------
 
@@ -401,6 +405,47 @@ def generate_trip_summary(
     return "\n".join(lines)
 
 
+# ---------- NEW: AI Recommendation ----------
+
+def ai_recommendation(summary_text: str, park_ids: List[str], trip_month: int) -> str:
+    """
+    Use an OpenAI model to generate a short, human-style recommendation
+    based on the trip summary and chosen parks.
+    """
+    month_name = date(2000, trip_month, 1).strftime("%B")
+    park_names = ", ".join(PARKS[pid].name for pid in park_ids)
+
+    prompt = f"""
+    You are an AI travel planner. The user is planning a U.S. national parks roadtrip.
+
+    Here is a structured summary of their trip:
+
+    {summary_text}
+
+    Additional context:
+    - Parks on the route: {park_names}
+    - Trip month: {month_name}
+
+    Write a friendly 3–5 sentence recommendation that:
+    - Highlights the best seasonal experience on this route,
+    - Mentions any driving risk or pacing concerns,
+    - Gives 1–2 practical tips (timing, hydration, weather/closures, reservations).
+
+    Make it concise and conversational (no bullet points).
+    """
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",  # change to another model if needed
+        input=prompt,
+    )
+
+    try:
+        # Extract the text from the first output block
+        return response.output[0].content[0].text
+    except Exception:
+        return "AI recommendation is currently unavailable. Please try again later."
+
+
 # ---------- Map Helper ----------
 
 def build_route_points_and_path(start_city_id: str, park_ids: List[str]) -> Tuple[pd.DataFrame, list]:
@@ -548,12 +593,21 @@ def main():
             risk,
         )
 
+        # NEW: Call AI to generate recommendation
+        try:
+            ai_text = ai_recommendation(summary, parks_selected, int(trip_month))
+        except Exception as e:
+            ai_text = f"AI recommendation is unavailable right now: {e}"
+
         # Layout: summary + table + map
         col1, col2 = st.columns([1.2, 1])
 
         with col1:
             st.subheader("Trip Summary")
             st.text(summary)
+
+            st.subheader("AI Trip Insight")
+            st.write(ai_text)
 
             st.subheader("Segment Details")
             seg_rows = []
