@@ -1,18 +1,18 @@
 import math
+import os
 from dataclasses import dataclass
 from datetime import date
 from typing import List, Dict, Tuple
 
+import requests
 import streamlit as st
 import pandas as pd
 import pydeck as pdk
 
-# --- NEW: OpenAI import & client ---
-from openai import OpenAI
-client = OpenAI()
 
-
-# ---------- Data Models ----------
+# =======================
+# Data Models
+# =======================
 
 @dataclass
 class Park:
@@ -28,6 +28,7 @@ class Park:
     typical_daily_cost: float  # lodging + food rough estimate near the park
     notes: str
 
+
 @dataclass
 class City:
     city_id: str
@@ -36,7 +37,9 @@ class City:
     lon: float
 
 
-# ---------- Static Data (sample parks & cities) ----------
+# =======================
+# Static Data
+# =======================
 
 PARKS: Dict[str, Park] = {
     "YOSE": Park(
@@ -122,13 +125,175 @@ CITIES: Dict[str, City] = {
 }
 
 
-# ---------- Utility Functions ----------
+# =======================
+# Ollama Chat Backend
+# =======================
+
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "llama3.1")  # or another pulled model
+
+
+def call_chat_model(messages: List[Dict[str, str]]) -> str:
+    """
+    Call a local Ollama chat model with OpenAI-style messages.
+    Requires Ollama running locally and the model pulled.
+    """
+    try:
+        resp = requests.post(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json={
+                "model": OLLAMA_MODEL_NAME,
+                "messages": messages,
+                "stream": False,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("message", {}).get("content", "I couldn't generate a response.")
+    except Exception as e:
+        return f"(Ollama error: {e})"
+
+
+# =======================
+# Styling
+# =======================
+
+def inject_custom_css():
+    st.markdown(
+        """
+        <style>
+        /* Hide default menu & footer */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+
+        /* Page background */
+        .main {
+            background: radial-gradient(circle at top left, #e0f2fe 0, #f9fafb 45%, #ffffff 100%);
+        }
+
+        /* Layout width & padding */
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+            max-width: 1200px;
+        }
+
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #020617 0%, #0f172a 60%, #111827 100%);
+            color: #e5e7eb;
+        }
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] label {
+            color: #e5e7eb !important;
+        }
+
+        .stButton>button {
+            background: #06b6d4;
+            color: white;
+            border-radius: 999px;
+            border: none;
+            padding: 0.4rem 1.2rem;
+            font-weight: 600;
+            box-shadow: 0 12px 30px rgba(8, 47, 73, 0.28);
+        }
+        .stButton>button:hover {
+            background: #0e7490;
+            transform: translateY(-1px);
+        }
+
+        /* Hero */
+        .hero-pill {
+            display: inline-block;
+            padding: 0.15rem 0.8rem;
+            border-radius: 999px;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .hero-title {
+            font-size: 2.6rem;
+            font-weight: 800;
+            line-height: 1.1;
+            color: #0f172a;
+            margin-top: 0.6rem;
+            margin-bottom: 0.35rem;
+        }
+        .hero-subtitle {
+            font-size: 0.98rem;
+            color: #4b5563;
+            max-width: 26rem;
+        }
+
+        /* Cards */
+        .glass-card {
+            background: rgba(255,255,255,0.94);
+            border-radius: 18px;
+            padding: 1.1rem 1.35rem;
+            box-shadow: 0 20px 55px rgba(15, 23, 42, 0.12);
+            border: 1px solid rgba(226, 232, 240, 0.9);
+        }
+
+        .section-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 0.2rem;
+        }
+        .section-kicker {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #6b7280;
+            margin-bottom: 0.2rem;
+        }
+
+        .stat-chip {
+            background: #ffffff;
+            border-radius: 999px;
+            padding: 0.35rem 0.8rem;
+            font-size: 0.8rem;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+            border: 1px solid #e5e7eb;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+        .stat-chip-label {
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            font-size: 0.7rem;
+            color: #9ca3af;
+        }
+        .stat-chip-value {
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        /* Dataframe container */
+        .stDataFrame div[data-testid="stVerticalBlock"] {
+            background: white;
+            border-radius: 16px;
+            padding: 0.5rem;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =======================
+# Utility Functions
+# =======================
 
 def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """
-    Great-circle distance between two points in miles.
-    This is an approximation of road distance, not exact driving distance.
-    """
     R = 3958.8  # Earth radius in miles
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -142,18 +307,12 @@ def estimate_drive_hours(distance_miles: float, avg_speed_mph: float = 55.0) -> 
     return distance_miles / avg_speed_mph
 
 
-# ---------- Phenomenon Timing / "AI" Logic ----------
-
 def phenomenon_alignment_score(park: Park, trip_month: int) -> float:
-    """
-    Score from 0–1 for how well the chosen month lines up with the park's best window.
-    """
     start, end = park.best_start_month, park.best_end_month
     if start <= end:
         in_window = start <= trip_month <= end
         distance = 0 if in_window else min(abs(trip_month - start), abs(trip_month - end))
     else:
-        # window wraps (e.g., Nov–Feb)
         in_window = trip_month >= start or trip_month <= end
         if in_window:
             distance = 0
@@ -164,14 +323,10 @@ def phenomenon_alignment_score(park: Park, trip_month: int) -> float:
 
     if distance == 0:
         return 1.0
-    # decay score: each month away reduces alignment
     return max(0.0, 1.0 - distance / 4.0)
 
 
 def predict_peak_window(park: Park, year: int) -> Tuple[date, date]:
-    """
-    Simple peak window prediction: middle of the best months, +/- a few days.
-    """
     mid_month = (park.best_start_month + park.best_end_month) / 2
     mid_month_int = int(round(mid_month))
     start = date(year, mid_month_int, 10)
@@ -179,25 +334,15 @@ def predict_peak_window(park: Park, year: int) -> Tuple[date, date]:
     return start, end
 
 
-# ---------- Routing / Mileage / Rest Stops ----------
-
 def plan_segment(start_lat: float, start_lon: float,
                  end_lat: float, end_lon: float) -> Tuple[float, float, int]:
-    """
-    Compute one segment: (distance_miles, drive_hours, suggested_rest_stops)
-    """
     dist = haversine_miles(start_lat, start_lon, end_lat, end_lon)
     hours = estimate_drive_hours(dist)
-    # Simple rest-stop logic: 1 stop every 3 hours of driving
     rest_stops = int(hours // 3)
     return dist, hours, rest_stops
 
 
 def compute_route(start_city_id: str, park_ids: List[str]) -> Dict:
-    """
-    Compute distances, hours, and rest stops for a route from a start city
-    through parks in the given order.
-    """
     if start_city_id not in CITIES:
         raise ValueError("Unknown start city")
     if not park_ids:
@@ -207,7 +352,6 @@ def compute_route(start_city_id: str, park_ids: List[str]) -> Dict:
     total_miles = 0.0
     total_hours = 0.0
 
-    # start city to first park
     city = CITIES[start_city_id]
     first_park = PARKS[park_ids[0]]
     dist, hours, stops = plan_segment(city.lat, city.lon, first_park.lat, first_park.lon)
@@ -221,7 +365,6 @@ def compute_route(start_city_id: str, park_ids: List[str]) -> Dict:
     total_miles += dist
     total_hours += hours
 
-    # between parks
     for i in range(len(park_ids) - 1):
         p1 = PARKS[park_ids[i]]
         p2 = PARKS[park_ids[i + 1]]
@@ -243,27 +386,20 @@ def compute_route(start_city_id: str, park_ids: List[str]) -> Dict:
     }
 
 
-# ---------- Budgeting Logic ----------
-
 def estimate_budget(
     park_ids: List[str],
     trip_days: int,
     total_miles: float,
     mpg: float,
     gas_price: float,
-    lodging_style: str = "camping",  # "camping", "budget", "nice"
+    lodging_style: str = "camping",
     food_per_day: float = 40.0,
 ) -> Dict:
-    """
-    Estimate total budget for the trip.
-    """
     if not park_ids:
         raise ValueError("No parks")
 
-    # Fuel
     fuel_cost = (total_miles / mpg) * gas_price
 
-    # Lodging
     if lodging_style == "camping":
         nightly_rate = 30.0
     elif lodging_style == "budget":
@@ -272,16 +408,9 @@ def estimate_budget(
         nightly_rate = 150.0
 
     lodging_cost = nightly_rate * max(trip_days - 1, 0)
-
-    # Food
     food_cost = food_per_day * trip_days
-
-    # Park entrance fees (unique parks)
     park_fees = sum(PARKS[p].entrance_fee for p in set(park_ids))
-
-    # Misc buffer (gear, snacks, etc.)
     misc_cost = 0.15 * (fuel_cost + lodging_cost + food_cost + park_fees)
-
     total_cost = fuel_cost + lodging_cost + food_cost + park_fees + misc_cost
 
     return {
@@ -294,41 +423,22 @@ def estimate_budget(
     }
 
 
-# ---------- Risk Scoring ("Flight Risk" → Roadtrip Risk) ----------
-
 def risk_score_for_segment(hours: float, month: int) -> float:
-    """
-    Very simple risk scoring:
-    - Long drives increase risk
-    - Winter months add extra risk (snow/ice)
-    """
     base = 20.0
-
-    # add risk for long drives
     if hours > 4:
-        base += (hours - 4) * 5  # +5 per extra hour
-
-    # winter risk (snow/ice)
+        base += (hours - 4) * 5
     if month in (12, 1, 2):
         base += 20
-
-    # clamp 0–100
     return max(0.0, min(100.0, base))
 
 
 def overall_trip_risk(route_info: Dict, trip_month: int, max_daily_hours: float) -> Dict:
-    """
-    Compute per-segment and overall risk.
-    """
     segment_risks = []
     for seg in route_info["segments"]:
         seg_hours = seg["drive_hours"]
         seg_risk = risk_score_for_segment(seg_hours, trip_month)
-
-        # penalty if above user's preferred max
         if seg_hours > max_daily_hours:
             seg_risk += 15
-
         seg_risk = min(seg_risk, 100.0)
         segment_risks.append(seg_risk)
         seg["risk_score"] = seg_risk
@@ -343,8 +453,6 @@ def overall_trip_risk(route_info: Dict, trip_month: int, max_daily_hours: float)
     }
 
 
-# ---------- "AI" Trip Summary Generator ----------
-
 def generate_trip_summary(
     start_city_id: str,
     park_ids: List[str],
@@ -355,23 +463,17 @@ def generate_trip_summary(
     budget_info: Dict,
     risk_info: Dict,
 ) -> str:
-    """
-    Generate a human-friendly narrative summary of the roadtrip.
-    This mimics an AI assistant explaining your plan.
-    """
     city = CITIES[start_city_id]
     park_names = [PARKS[p].name for p in park_ids]
     total_miles = route_info["total_miles"]
     total_hours = route_info["total_hours"]
 
-    # risk text
     risk_text = "low"
     if risk_info["avg_risk"] > 70:
         risk_text = "high"
     elif risk_info["avg_risk"] > 40:
         risk_text = "medium"
 
-    # pick the most seasonally aligned park for the chosen month
     best_park_id = max(park_ids, key=lambda pid: phenomenon_alignment_score(PARKS[pid], month))
     best_park = PARKS[best_park_id]
     peak_start, peak_end = predict_peak_window(best_park, year)
@@ -405,67 +507,51 @@ def generate_trip_summary(
     return "\n".join(lines)
 
 
-# ---------- NEW: AI Recommendation ----------
-
 def ai_recommendation(summary_text: str, park_ids: List[str], trip_month: int) -> str:
-    """
-    Use an OpenAI model to generate a short, human-style recommendation
-    based on the trip summary and chosen parks.
-    """
     month_name = date(2000, trip_month, 1).strftime("%B")
     park_names = ", ".join(PARKS[pid].name for pid in park_ids)
 
-    prompt = f"""
-    You are an AI travel planner. The user is planning a U.S. national parks roadtrip.
+    system_msg = {
+        "role": "system",
+        "content": (
+            "You are an AI travel planner for U.S. national parks roadtrips. "
+            "You give concise, practical advice about routes, seasons, and safety."
+        ),
+    }
 
-    Here is a structured summary of their trip:
+    user_msg = {
+        "role": "user",
+        "content": f"""
+The user is planning this roadtrip:
 
-    {summary_text}
+{summary_text}
 
-    Additional context:
-    - Parks on the route: {park_names}
-    - Trip month: {month_name}
+Additional context:
+- Parks on the route: {park_names}
+- Trip month: {month_name}
 
-    Write a friendly 3–5 sentence recommendation that:
-    - Highlights the best seasonal experience on this route,
-    - Mentions any driving risk or pacing concerns,
-    - Gives 1–2 practical tips (timing, hydration, weather/closures, reservations).
+Write a friendly 3–5 sentence recommendation that:
+- Highlights the best seasonal experience on this route,
+- Mentions any driving risk or pacing concerns,
+- Gives 1–2 practical tips (timing, hydration, weather/closures, reservations).
 
-    Make it concise and conversational (no bullet points).
-    """
+Make it concise and conversational (no bullet points).
+""",
+    }
 
-    response = client.responses.create(
-        model="gpt-4.1-mini",  # change to another model if needed
-        input=prompt,
-    )
+    return call_chat_model([system_msg, user_msg])
 
-    try:
-        # Extract the text from the first output block
-        return response.output[0].content[0].text
-    except Exception:
-        return "AI recommendation is currently unavailable. Please try again later."
-
-
-# ---------- Map Helper ----------
 
 def build_route_points_and_path(start_city_id: str, park_ids: List[str]) -> Tuple[pd.DataFrame, list]:
-    """
-    Build a dataframe of points (start + parks) and a path list for mapping.
-    path is a list of [lon, lat] in order.
-    """
     city = CITIES[start_city_id]
-    points = []
-
-    # start city
-    points.append({
+    points = [{
         "name": city.name,
         "type": "Start",
         "order": 0,
         "lat": city.lat,
         "lon": city.lon,
-    })
+    }]
 
-    # parks in order
     for i, pid in enumerate(park_ids, start=1):
         p = PARKS[pid]
         points.append({
@@ -481,46 +567,93 @@ def build_route_points_and_path(start_city_id: str, park_ids: List[str]) -> Tupl
     return df_points, path
 
 
-# ---------- Streamlit App ----------
+# =======================
+# Streamlit App
+# =======================
 
 def main():
-    st.set_page_config(page_title="Roadtrip Planner", layout="wide")
-    st.title("🛣️ National Parks Roadtrip Planner")
-
-    st.markdown(
-        "Pick your **start city** and the **parks** you want to visit (in order), "
-        "and I'll estimate driving, budget, risk — and show your route on a map."
+    st.set_page_config(
+        page_title="Roadtrip Planner",
+        page_icon="🗺️",
+        layout="wide",
     )
 
-    # Sidebar inputs
+    inject_custom_css()
+
+    # ---------- HERO ----------
+    hero_col1, hero_col2 = st.columns([2.1, 1])
+
+    with hero_col1:
+        st.markdown('<div class="hero-pill">Planning a better travel</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="hero-title">Design your dream<br>national parks roadtrip.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="hero-subtitle">'
+            'Pick a starting city and a chain of national parks. I’ll map the route, estimate your budget, '
+            'score driving risk, and let an AI copilot help you fine-tune the plan.'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        stat_c1, stat_c2, stat_c3 = st.columns(3)
+        stat_c1.markdown(
+            '<div class="stat-chip">'
+            '<div class="stat-chip-label">Parks</div>'
+            '<div class="stat-chip-value">8 featured</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        stat_c2.markdown(
+            '<div class="stat-chip">'
+            '<div class="stat-chip-label">Roadtrip style</div>'
+            '<div class="stat-chip-value">Budget → comfy</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        stat_c3.markdown(
+            '<div class="stat-chip">'
+            '<div class="stat-chip-label">AI copilot</div>'
+            '<div class="stat-chip-value">Chat built-in</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    with hero_col2:
+        st.image(
+            "https://images.pexels.com/photos/618833/pexels-photo-618833.jpeg",
+            use_column_width=True,
+            caption="National parks, scenic routes, and wide-open roads.",
+        )
+
+    st.markdown("")  # spacing
+
+    # ---------- SIDEBAR ----------
     st.sidebar.header("Trip Settings")
 
-    # Start city
     city_ids = list(CITIES.keys())
     city_labels = {cid: CITIES[cid].name for cid in city_ids}
     start_city = st.sidebar.selectbox(
         "Start city",
         options=city_ids,
         format_func=lambda cid: f"{city_labels[cid]} ({cid})",
-        index=1,  # default to Denver
+        index=1,
     )
 
-    # Visual park picker with ordering
     st.sidebar.subheader("Parks to visit (order = selection order)")
-
     park_ids = list(PARKS.keys())
-    parks_default = ["RMNP", "ARCH", "ZION", "BRCA"]
-    parks_default = [p for p in parks_default if p in park_ids]
+    default_parks = ["RMNP", "ARCH", "ZION", "BRCA"]
+    default_parks = [p for p in default_parks if p in park_ids]
 
     parks_selected = st.sidebar.multiselect(
         "Choose parks",
         options=park_ids,
-        default=parks_default,
+        default=default_parks,
         format_func=lambda pid: f"{PARKS[pid].name} ({pid})",
-        help="The order you click/select parks is the order they'll be visited.",
+        help="The order you select parks is the order they'll be visited.",
     )
 
-    # Show details of selected parks
     with st.expander("Selected parks details", expanded=False):
         if parks_selected:
             for order, pid in enumerate(parks_selected, start=1):
@@ -534,9 +667,8 @@ def main():
         else:
             st.write("No parks selected yet.")
 
-    # Other trip params
     trip_year = st.sidebar.number_input("Trip year", min_value=2024, max_value=2100, value=2026, step=1)
-    trip_month = st.sidebar.number_input("Trip month (1-12)", min_value=1, max_value=12, value=7, step=1)
+    trip_month = st.sidebar.number_input("Trip month (1–12)", min_value=1, max_value=12, value=7, step=1)
     trip_days = st.sidebar.number_input("Trip length (days)", min_value=1, max_value=60, value=10, step=1)
     mpg = st.sidebar.number_input("Vehicle MPG", min_value=5.0, max_value=80.0, value=25.0, step=0.5)
     gas_price = st.sidebar.number_input("Gas price ($/gallon)", min_value=1.0, max_value=10.0, value=4.0, step=0.1)
@@ -562,6 +694,7 @@ def main():
 
     plan_button = st.sidebar.button("🚗 Plan my roadtrip")
 
+    # ---------- MAIN CONTENT ----------
     if plan_button:
         if not parks_selected:
             st.error("Please select at least one park.")
@@ -593,23 +726,49 @@ def main():
             risk,
         )
 
-        # NEW: Call AI to generate recommendation
-        try:
-            ai_text = ai_recommendation(summary, parks_selected, int(trip_month))
-        except Exception as e:
-            ai_text = f"AI recommendation is unavailable right now: {e}"
+        ai_text = ai_recommendation(summary, parks_selected, int(trip_month))
 
-        # Layout: summary + table + map
-        col1, col2 = st.columns([1.2, 1])
+        main_col, map_col = st.columns([1.4, 1])
 
-        with col1:
-            st.subheader("Trip Summary")
-            st.text(summary)
+        # ----- LEFT: cards -----
+        with main_col:
+            # Trip overview
+            st.markdown(
+                '<div class="glass-card">'
+                '<div class="section-kicker">Trip overview</div>'
+                '<div class="section-title">Your roadtrip at a glance</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<pre style='white-space: pre-wrap; font-family: inherit; margin-top: 0.6rem;'>{summary}</pre>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
 
-            st.subheader("AI Trip Insight")
-            st.write(ai_text)
+            st.markdown("")
 
-            st.subheader("Segment Details")
+            # AI insight
+            st.markdown(
+                '<div class="glass-card" style="margin-top: 0.25rem;">'
+                '<div class="section-kicker">AI copilot</div>'
+                '<div class="section-title">Trip insight</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f"<div style='margin-top:0.6rem; font-size:0.95rem;'>{ai_text}</div>",
+                unsafe_allow_html=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown("")
+
+            # Segment details
+            st.markdown(
+                '<div class="glass-card" style="margin-top: 0.4rem;">'
+                '<div class="section-kicker">Driving plan</div>'
+                '<div class="section-title">Segment details</div>',
+                unsafe_allow_html=True,
+            )
             seg_rows = []
             for seg in risk["segments"]:
                 seg_rows.append({
@@ -618,15 +777,78 @@ def main():
                     "Distance (miles)": round(seg["distance_miles"], 1),
                     "Drive time (hrs)": round(seg["drive_hours"], 2),
                     "Rest stops": seg["rest_stops"],
-                    "Risk (0-100)": round(seg["risk_score"], 1),
+                    "Risk (0–100)": round(seg["risk_score"], 1),
                 })
             if seg_rows:
-                st.dataframe(seg_rows, use_container_width=True)
+                st.dataframe(seg_rows, width="stretch")
             else:
                 st.write("No segments to show.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        with col2:
-            st.subheader("Route Map")
+            st.markdown("")
+
+            # Chat assistant
+            st.markdown(
+                '<div class="glass-card" style="margin-top: 0.4rem;">'
+                '<div class="section-kicker">Conversation</div>'
+                '<div class="section-title">Chat with your trip assistant</div>',
+                unsafe_allow_html=True,
+            )
+
+            if "chat_messages" not in st.session_state:
+                st.session_state.chat_messages = [
+                    {
+                        "role": "assistant",
+                        "content": (
+                            "Hi! I’m your roadtrip assistant. Ask me anything about this itinerary, "
+                            "alternate parks, packing, or driving safety."
+                        ),
+                    }
+                ]
+
+            for msg in st.session_state.chat_messages:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+
+            user_input = st.chat_input("Ask a question about your trip...")
+            if user_input:
+                st.session_state.chat_messages.append({"role": "user", "content": user_input})
+                with st.chat_message("user"):
+                    st.markdown(user_input)
+
+                parks_text = ", ".join(PARKS[pid].name for pid in parks_selected)
+                system_msg = {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful U.S. national parks roadtrip assistant. "
+                        "You know about driving safety, basic costs, park seasons, and logistics. "
+                        f"The current trip summary is:\n\n{summary}\n\n"
+                        f"Selected parks: {parks_text}\n\n"
+                        "Give specific, practical advice. If the user asks for something "
+                        "outside this trip, you can still answer but stay travel-focused."
+                    ),
+                }
+
+                chat_history_for_model = [system_msg] + st.session_state.chat_messages
+
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking about your trip..."):
+                        reply = call_chat_model(chat_history_for_model)
+                    st.markdown(reply)
+
+                st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # ----- RIGHT: map -----
+        with map_col:
+            st.markdown(
+                '<div class="glass-card">'
+                '<div class="section-kicker">Route</div>'
+                '<div class="section-title">Map & featured destinations</div>',
+                unsafe_allow_html=True,
+            )
+
             df_points, path = build_route_points_and_path(start_city, parks_selected)
 
             if not df_points.empty:
@@ -669,6 +891,9 @@ def main():
             else:
                 st.write("No points to display on the map.")
 
+            st.markdown("</div>", unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()
+
